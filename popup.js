@@ -119,82 +119,57 @@ document.addEventListener('DOMContentLoaded', () => {
     else if (targetLang === 'zh-CN') ythLang = 'zh-Hans';
 
     // Replace &amp; to & in base URL to avoid parameter parsing issues
-    const cleanBaseUrl = baseUrl.replace(/&amp;/g, '&');
-    
-    // Redirect requests to video.google.com/timedtext to bypass extension Origin header blocks on www.youtube.com
-    const googleBaseUrl = cleanBaseUrl.replace('www.youtube.com/api/timedtext', 'video.google.com/timedtext');
+    let cleanBaseUrl = baseUrl.replace(/&amp;/g, '&');
 
-    // We fetch raw timedtext XML (without fmt=json3) which is highly compatible and bypasses new JSON token validation
-    const sourceUrl = googleBaseUrl;
-    const targetUrl = `${googleBaseUrl}&tlang=${ythLang}`;
+    // Remove any existing fmt parameter so we can set it explicitly
+    cleanBaseUrl = cleanBaseUrl.replace(/[&?]fmt=[^&]*/g, '');
+
+    // Use fmt=srv3 which returns stable XML format (srv1/srv2/srv3 are all XML variants)
+    // Keep www.youtube.com domain with credentials:include so the user's session cookie is sent
+    const sep = cleanBaseUrl.includes('?') ? '&' : '?';
+    const sourceUrl = `${cleanBaseUrl}${sep}fmt=srv3`;
+    const targetUrl = `${cleanBaseUrl}${sep}fmt=srv3&tlang=${ythLang}`;
 
     // Show loading state
     const descEl = document.getElementById('download-desc');
     const originalDesc = descEl.textContent;
     descEl.textContent = '正在下載與翻譯字幕...';
 
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      const activeTab = tabs[0];
-      if (activeTab) {
-        chrome.scripting.executeScript({
-          target: { tabId: activeTab.id },
-          world: 'MAIN',
-          func: async (sUrl, tUrl) => {
-            try {
-              // Fetch anonymously on video.google.com to inherit YouTube's Origin and bypass Service Worker
-              const res1 = await fetch(sUrl, { credentials: 'omit' });
-              if (!res1.ok) throw new Error(`來源字幕請求失敗 (HTTP ${res1.status})`);
-              const text1 = await res1.text();
-              if (!text1 || text1.trim() === "") throw new Error('來源字幕資料為空 (0位元組)');
-              
-              let text2 = null;
-              try {
-                const res2 = await fetch(tUrl, { credentials: 'omit' });
-                if (res2.ok) {
-                  text2 = await res2.text();
-                }
-              } catch (e) {
-                console.warn('Failed to fetch translated subtitles:', e);
-              }
-              
-              return { success: true, sourceXml: text1, targetXml: text2 };
-            } catch (err) {
-              return { success: false, error: err.message };
-            }
-          },
-          args: [sourceUrl, targetUrl]
-        }, (results) => {
-          descEl.textContent = originalDesc; // restore status text
+    chrome.runtime.sendMessage(
+      { type: 'FETCH_SUBTITLES', sourceUrl, targetUrl },
+      (response) => {
+        descEl.textContent = originalDesc;
 
-          if (chrome.runtime.lastError || !results || !results[0] || !results[0].result.success) {
-            const errMsg = results && results[0] ? results[0].result.error : (chrome.runtime.lastError ? chrome.runtime.lastError.message : '執行失敗');
-            alert('下載失敗: ' + errMsg);
-            return;
-          }
+        if (chrome.runtime.lastError || !response || !response.success) {
+          const errMsg = response ? response.error : (chrome.runtime.lastError ? chrome.runtime.lastError.message : '執行失敗');
+          alert('下載失敗: ' + errMsg);
+          return;
+        }
 
-          const { sourceXml, targetXml } = results[0].result;
-          
-          const sourceEvents = parseXmlSubtitles(sourceXml);
-          const translatedEvents = targetXml ? parseXmlSubtitles(targetXml) : [];
+        const { sourceXml, targetXml } = response;
 
-          if (sourceEvents.length === 0) {
-            alert('下載失敗: 剖析字幕資料後無內容');
-            return;
-          }
+        if (!sourceXml || sourceXml.trim() === '') {
+          alert('下載失敗: 來源字幕資料為空 (0位元組)');
+          return;
+        }
 
-          let fileContent = '';
-          const sanitizedTitle = videoTitle.replace(/[\\/:*?"<>|]/g, '_');
+        const sourceEvents = parseXmlSubtitles(sourceXml);
+        const translatedEvents = targetXml ? parseXmlSubtitles(targetXml) : [];
 
-          if (format === 'srt') {
-            fileContent = generateSrtFromXml(sourceEvents, translatedEvents);
-            downloadFile(fileContent, `${sanitizedTitle}.srt`, 'text/srt');
-          } else {
-            fileContent = generateTxtFromXml(sourceEvents, translatedEvents);
-            downloadFile(fileContent, `${sanitizedTitle}.txt`, 'text/plain');
-          }
-        });
+        if (sourceEvents.length === 0) {
+          alert('下載失敗: 剖析字幕資料後無內容');
+          return;
+        }
+
+        const sanitizedTitle = videoTitle.replace(/[\\/:*?"<>|]/g, '_');
+
+        if (format === 'srt') {
+          downloadFile(generateSrtFromXml(sourceEvents, translatedEvents), `${sanitizedTitle}.srt`, 'text/srt');
+        } else {
+          downloadFile(generateTxtFromXml(sourceEvents, translatedEvents), `${sanitizedTitle}.txt`, 'text/plain');
+        }
       }
-    });
+    );
   }
 
   // Parse YouTube timedtext XML format
