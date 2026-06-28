@@ -124,11 +124,10 @@ document.addEventListener('DOMContentLoaded', () => {
     // Remove any existing fmt parameter so we can set it explicitly
     cleanBaseUrl = cleanBaseUrl.replace(/[&?]fmt=[^&]*/g, '');
 
-    // Use fmt=srv3 which returns stable XML format (srv1/srv2/srv3 are all XML variants)
-    // Keep www.youtube.com domain with credentials:include so the user's session cookie is sent
+    // fmt=json3 is the most reliable format for YouTube timedtext API
     const sep = cleanBaseUrl.includes('?') ? '&' : '?';
-    const sourceUrl = `${cleanBaseUrl}${sep}fmt=srv3`;
-    const targetUrl = `${cleanBaseUrl}${sep}fmt=srv3&tlang=${ythLang}`;
+    const sourceUrl = `${cleanBaseUrl}${sep}fmt=json3`;
+    const targetUrl = `${cleanBaseUrl}${sep}fmt=json3&tlang=${ythLang}`;
 
     // Show loading state
     const descEl = document.getElementById('download-desc');
@@ -146,15 +145,15 @@ document.addEventListener('DOMContentLoaded', () => {
           return;
         }
 
-        const { sourceXml, targetXml } = response;
+        const { sourceXml: sourceText, targetXml: targetText } = response;
 
-        if (!sourceXml || sourceXml.trim() === '') {
+        if (!sourceText || sourceText.trim() === '') {
           alert('下載失敗: 來源字幕資料為空 (0位元組)');
           return;
         }
 
-        const sourceEvents = parseXmlSubtitles(sourceXml);
-        const translatedEvents = targetXml ? parseXmlSubtitles(targetXml) : [];
+        const sourceEvents = parseSubtitles(sourceText);
+        const translatedEvents = targetText ? parseSubtitles(targetText) : [];
 
         if (sourceEvents.length === 0) {
           alert('下載失敗: 剖析字幕資料後無內容');
@@ -172,40 +171,29 @@ document.addEventListener('DOMContentLoaded', () => {
     );
   }
 
-  // Parse YouTube timedtext XML format
-  function parseXmlSubtitles(xmlText) {
+  // Parse YouTube timedtext json3 format
+  function parseSubtitles(text) {
     try {
-      const parser = new DOMParser();
-      const xmlDoc = parser.parseFromString(xmlText, "text/xml");
-      const textEls = xmlDoc.getElementsByTagName('text');
+      const data = JSON.parse(text);
       const events = [];
-      
-      for (let i = 0; i < textEls.length; i++) {
-        const el = textEls[i];
-        const start = parseFloat(el.getAttribute('start') || '0') * 1000;
-        const dur = parseFloat(el.getAttribute('dur') || '0') * 1000;
-        const text = el.textContent || '';
+      for (const evt of (data.events || [])) {
+        if (!evt.segs) continue;
+        const segText = evt.segs.map(s => s.utf8 || '').join('').replace(/\n/g, ' ').trim();
+        if (!segText) continue;
         events.push({
-          tStartMs: Math.round(start),
-          dDurationMs: Math.round(dur),
-          text: decodeHtmlEntities(text)
+          tStartMs: evt.tStartMs || 0,
+          dDurationMs: evt.dDurationMs || 0,
+          text: segText
         });
       }
       return events;
     } catch (e) {
-      console.error('XML parsing error:', e);
+      console.error('JSON3 parsing error:', e);
       return [];
     }
   }
 
-  // Decode XML/HTML entities like &amp; &quot; &#39;
-  function decodeHtmlEntities(str) {
-    const txt = document.createElement("textarea");
-    txt.innerHTML = str;
-    return txt.value;
-  }
-
-  // Generate SRT dual subtitle content from XML events
+  // Generate SRT dual subtitle content from events
   function generateSrtFromXml(sourceEvents, translatedEvents) {
     let srt = '';
     let index = 1;
