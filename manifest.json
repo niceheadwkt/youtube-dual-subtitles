@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "YouTube 雙語字幕助手 (YouTube Dual Subtitles)",
+  "name": "youtube-dual-subtitles",
   "version": "1.0.0",
   "description": "在 YouTube 影片播放時同步顯示雙語字幕，支援多國語言設定與自訂字型大小。",
   "permissions": [

@@ -1,4 +1,4 @@
-# YouTube 雙語字幕助手 (YouTube Dual Subtitles)
+# youtube-dual-subtitles
 
 這是一個適用於 Google Chrome 瀏覽器的輕量化擴充功能 (Chrome Extension - Manifest V3)，能於 YouTube 播放影片時，自動將原生字幕翻譯成您指定的第二語言，並雙語同步顯示於播放器中。
 
