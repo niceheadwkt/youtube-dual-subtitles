@@ -134,41 +134,45 @@ document.addEventListener('DOMContentLoaded', () => {
     const originalDesc = descEl.textContent;
     descEl.textContent = '正在下載與翻譯字幕...';
 
-    chrome.runtime.sendMessage(
-      { type: 'FETCH_SUBTITLES', sourceUrl, targetUrl },
-      (response) => {
-        descEl.textContent = originalDesc;
+    (async () => {
+      try {
+        const fetchText = async (url) => {
+          const r = await fetch(url, { credentials: 'include' });
+          const text = await r.text();
+          console.log('[DualSub] fetch', url.slice(0, 80), 'status:', r.status, 'len:', text.length, 'preview:', text.slice(0, 80));
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          return text;
+        };
 
-        if (chrome.runtime.lastError || !response || !response.success) {
-          const errMsg = response ? response.error : (chrome.runtime.lastError ? chrome.runtime.lastError.message : '執行失敗');
-          alert('下載失敗: ' + errMsg);
-          return;
-        }
-
-        const { sourceXml: sourceText, targetXml: targetText } = response;
-
+        const sourceText = await fetchText(sourceUrl);
         if (!sourceText || sourceText.trim() === '') {
-          alert('下載失敗: 來源字幕資料為空 (0位元組)');
-          return;
+          throw new Error(`來源字幕資料為空（HTTP 200 但 body 長度為 0）\nURL: ${sourceUrl.slice(0, 120)}`);
         }
+
+        let targetText = null;
+        try { targetText = await fetchText(targetUrl); } catch (_) {}
+
+        descEl.textContent = originalDesc;
 
         const sourceEvents = parseSubtitles(sourceText);
         const translatedEvents = targetText ? parseSubtitles(targetText) : [];
 
         if (sourceEvents.length === 0) {
-          alert('下載失敗: 剖析字幕資料後無內容');
+          alert('下載失敗: 剖析字幕資料後無內容\n前80字元: ' + sourceText.slice(0, 80));
           return;
         }
 
         const sanitizedTitle = videoTitle.replace(/[\\/:*?"<>|]/g, '_');
-
         if (format === 'srt') {
           downloadFile(generateSrtFromXml(sourceEvents, translatedEvents), `${sanitizedTitle}.srt`, 'text/srt');
         } else {
           downloadFile(generateTxtFromXml(sourceEvents, translatedEvents), `${sanitizedTitle}.txt`, 'text/plain');
         }
+      } catch (err) {
+        descEl.textContent = originalDesc;
+        alert('下載失敗: ' + err.message);
       }
-    );
+    })();
   }
 
   // Parse YouTube timedtext json3 format
