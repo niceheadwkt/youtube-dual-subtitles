@@ -71,7 +71,8 @@ document.addEventListener('DOMContentLoaded', () => {
             : window.ytInitialPlayerResponse;
           return {
             tracks: data?.captions?.playerCaptionsTracklistRenderer?.captionTracks || [],
-            videoTitle: data?.videoDetails?.title || document.title || 'youtube_subtitle'
+            videoTitle: data?.videoDetails?.title || document.title || 'youtube_subtitle',
+            videoId: data?.videoDetails?.videoId || new URLSearchParams(location.search).get('v') || ''
           };
         }
       }, (results) => {
@@ -81,7 +82,7 @@ document.addEventListener('DOMContentLoaded', () => {
           return;
         }
 
-        const { tracks, videoTitle } = results[0].result;
+        const { tracks, videoTitle, videoId } = results[0].result;
         if (!tracks || tracks.length === 0) {
           document.getElementById('download-desc').textContent = '此影片無可用 CC 字幕';
           return;
@@ -103,11 +104,11 @@ document.addEventListener('DOMContentLoaded', () => {
         // Add button listener
         document.getElementById('download-srt').onclick = () => {
           const opt = select.options[select.selectedIndex];
-          triggerDownload('srt', opt.value, opt.dataset.lang, videoTitle);
+          triggerDownload('srt', opt.dataset.lang, videoId, videoTitle);
         };
         document.getElementById('download-txt').onclick = () => {
           const opt = select.options[select.selectedIndex];
-          triggerDownload('txt', opt.value, opt.dataset.lang, videoTitle);
+          triggerDownload('txt', opt.dataset.lang, videoId, videoTitle);
         };
       });
     } else {
@@ -115,30 +116,16 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  function triggerDownload(format, baseUrl, trackLang, videoTitle) {
+  function triggerDownload(format, trackLang, videoId, videoTitle) {
     const targetLang = targetLanguage.value; // e.g. zh-TW
     let ythLang = targetLang;
     if (targetLang === 'zh-TW') ythLang = 'zh-Hant';
     else if (targetLang === 'zh-CN') ythLang = 'zh-Hans';
 
-    // Replace &amp; to & in base URL to avoid parameter parsing issues
-    let cleanBaseUrl = baseUrl.replace(/&amp;/g, '&');
-
-    // Remove any existing fmt / lang parameters so we can set them explicitly
-    cleanBaseUrl = cleanBaseUrl.replace(/[&?]fmt=[^&]*/g, '');
-    cleanBaseUrl = cleanBaseUrl.replace(/[&?]lang=[^&]*/g, '');
-
-    // Fix URL if ? was accidentally consumed by the regex above
-    if (cleanBaseUrl.startsWith('https://') && !cleanBaseUrl.includes('?') && cleanBaseUrl.includes('&')) {
-      cleanBaseUrl = cleanBaseUrl.replace('&', '?');
-    }
-
-    // fmt=json3 is the most reliable format for YouTube timedtext API
-    // lang= is required for ASR tracks (auto-generated captions)
-    const sep = cleanBaseUrl.includes('?') ? '&' : '?';
-    const langParam = trackLang ? `&lang=${trackLang}` : '';
-    const sourceUrl = `${cleanBaseUrl}${sep}fmt=json3${langParam}`;
-    const targetUrl = `${cleanBaseUrl}${sep}fmt=json3${langParam}&tlang=${ythLang}`;
+    // Use the simple public timedtext endpoint — no session tokens required
+    const base = `https://www.youtube.com/api/timedtext?v=${videoId}&fmt=json3`;
+    const sourceUrl = `${base}&lang=${trackLang}`;
+    const targetUrl = `${base}&lang=${trackLang}&tlang=${ythLang}`;
 
     // Show loading state
     const descEl = document.getElementById('download-desc');
