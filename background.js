@@ -35,7 +35,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     
     (async () => {
       try {
-        const res1 = await fetch(sourceUrl);
+        const res1 = await fetch(sourceUrl, { credentials: 'omit' });
         if (!res1.ok) throw new Error(`來源字幕請求失敗 (HTTP ${res1.status})`);
         const text1 = await res1.text();
         if (!text1 || text1.trim() === "") throw new Error('來源字幕資料為空 (0位元組)');
@@ -43,7 +43,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         let text2 = null;
         if (targetUrl) {
           try {
-            const res2 = await fetch(targetUrl);
+            const res2 = await fetch(targetUrl, { credentials: 'omit' });
             if (res2.ok) {
               text2 = await res2.text();
             }
