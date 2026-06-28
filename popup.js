@@ -118,8 +118,12 @@ document.addEventListener('DOMContentLoaded', () => {
     if (targetLang === 'zh-TW') ythLang = 'zh-Hant';
     else if (targetLang === 'zh-CN') ythLang = 'zh-Hans';
 
-    const sourceUrl = `${baseUrl}&fmt=json3`;
-    const targetUrl = `${baseUrl}&tlang=${ythLang}&fmt=json3`;
+    // Replace &amp; to & in base URL to avoid parameter parsing issues
+    const cleanBaseUrl = baseUrl.replace(/&amp;/g, '&');
+    
+    // We fetch raw timedtext XML (without fmt=json3) which is highly compatible and bypasses new JSON token validation
+    const sourceUrl = cleanBaseUrl;
+    const targetUrl = `${cleanBaseUrl}&tlang=${ythLang}`;
 
     // Show loading state
     const descEl = document.getElementById('download-desc');
@@ -135,20 +139,21 @@ document.addEventListener('DOMContentLoaded', () => {
           func: async (sUrl, tUrl) => {
             try {
               const res1 = await fetch(sUrl);
-              if (!res1.ok) throw new Error(`HTTP 錯誤: ${res1.status}`);
-              const data1 = await res1.json();
+              if (!res1.ok) throw new Error(`來源字幕請求失敗 (HTTP ${res1.status})`);
+              const text1 = await res1.text();
+              if (!text1 || text1.trim() === "") throw new Error('來源字幕資料為空 (0位元組)');
               
-              let data2 = null;
+              let text2 = null;
               try {
                 const res2 = await fetch(tUrl);
                 if (res2.ok) {
-                  data2 = await res2.json();
+                  text2 = await res2.text();
                 }
               } catch (e) {
                 console.warn('Failed to fetch translated subtitles:', e);
               }
               
-              return { success: true, sourceData: data1, targetData: data2 };
+              return { success: true, sourceXml: text1, targetXml: text2 };
             } catch (err) {
               return { success: false, error: err.message };
             }
@@ -163,12 +168,13 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
           }
 
-          const { sourceData, targetData } = results[0].result;
-          const sourceEvents = sourceData?.events || [];
-          const translatedEvents = targetData?.events || [];
+          const { sourceXml, targetXml } = results[0].result;
+          
+          const sourceEvents = parseXmlSubtitles(sourceXml);
+          const translatedEvents = targetXml ? parseXmlSubtitles(targetXml) : [];
 
           if (sourceEvents.length === 0) {
-            alert('下載失敗: 字幕資料為空');
+            alert('下載失敗: 剖析字幕資料後無內容');
             return;
           }
 
@@ -176,10 +182,10 @@ document.addEventListener('DOMContentLoaded', () => {
           const sanitizedTitle = videoTitle.replace(/[\\/:*?"<>|]/g, '_');
 
           if (format === 'srt') {
-            fileContent = generateSrt(sourceEvents, translatedEvents);
+            fileContent = generateSrtFromXml(sourceEvents, translatedEvents);
             downloadFile(fileContent, `${sanitizedTitle}.srt`, 'text/srt');
           } else {
-            fileContent = generateTxt(sourceEvents, translatedEvents);
+            fileContent = generateTxtFromXml(sourceEvents, translatedEvents);
             downloadFile(fileContent, `${sanitizedTitle}.txt`, 'text/plain');
           }
         });
@@ -187,21 +193,51 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Generate SRT dual subtitle content
-  function generateSrt(sourceEvents, translatedEvents) {
+  // Parse YouTube timedtext XML format
+  function parseXmlSubtitles(xmlText) {
+    try {
+      const parser = new DOMParser();
+      const xmlDoc = parser.parseFromString(xmlText, "text/xml");
+      const textEls = xmlDoc.getElementsByTagName('text');
+      const events = [];
+      
+      for (let i = 0; i < textEls.length; i++) {
+        const el = textEls[i];
+        const start = parseFloat(el.getAttribute('start') || '0') * 1000;
+        const dur = parseFloat(el.getAttribute('dur') || '0') * 1000;
+        const text = el.textContent || '';
+        events.push({
+          tStartMs: Math.round(start),
+          dDurationMs: Math.round(dur),
+          text: decodeHtmlEntities(text)
+        });
+      }
+      return events;
+    } catch (e) {
+      console.error('XML parsing error:', e);
+      return [];
+    }
+  }
+
+  // Decode XML/HTML entities like &amp; &quot; &#39;
+  function decodeHtmlEntities(str) {
+    const txt = document.createElement("textarea");
+    txt.innerHTML = str;
+    return txt.value;
+  }
+
+  // Generate SRT dual subtitle content from XML events
+  function generateSrtFromXml(sourceEvents, translatedEvents) {
     let srt = '';
     let index = 1;
 
     for (let i = 0; i < sourceEvents.length; i++) {
       const sEvt = sourceEvents[i];
-      if (!sEvt.segs || sEvt.segs.length === 0) continue;
-
-      const text1 = sEvt.segs.map(s => s.utf8).join('').trim();
+      const text1 = sEvt.text;
       if (!text1) continue;
 
       const startMs = sEvt.tStartMs;
-      const durationMs = sEvt.dDurationMs || 0;
-      const endMs = startMs + durationMs;
+      const endMs = startMs + sEvt.dDurationMs;
 
       // Find translated text
       let text2 = '';
@@ -210,8 +246,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!tEvt && i < translatedEvents.length) {
           tEvt = translatedEvents[i];
         }
-        if (tEvt && tEvt.segs) {
-          text2 = tEvt.segs.map(s => s.utf8).join('').trim();
+        if (tEvt) {
+          text2 = tEvt.text;
         }
       }
 
@@ -227,14 +263,12 @@ document.addEventListener('DOMContentLoaded', () => {
     return srt;
   }
 
-  // Generate TXT transcript content
-  function generateTxt(sourceEvents, translatedEvents) {
+  // Generate TXT transcript content from XML events
+  function generateTxtFromXml(sourceEvents, translatedEvents) {
     let txt = '';
     for (let i = 0; i < sourceEvents.length; i++) {
       const sEvt = sourceEvents[i];
-      if (!sEvt.segs || sEvt.segs.length === 0) continue;
-
-      const text1 = sEvt.segs.map(s => s.utf8).join('').trim();
+      const text1 = sEvt.text;
       if (!text1) continue;
 
       const startMs = sEvt.tStartMs;
@@ -246,8 +280,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!tEvt && i < translatedEvents.length) {
           tEvt = translatedEvents[i];
         }
-        if (tEvt && tEvt.segs) {
-          text2 = tEvt.segs.map(s => s.utf8).join('').trim();
+        if (tEvt) {
+          text2 = tEvt.text;
         }
       }
 
