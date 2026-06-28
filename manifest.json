@@ -12,7 +12,8 @@
   },
   "host_permissions": [
     "https://*.youtube.com/*",
-    "https://translate.googleapis.com/*"
+    "https://translate.googleapis.com/*",
+    "https://video.google.com/*"
   ],
   "action": {
     "default_popup": "popup.html"

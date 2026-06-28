@@ -121,9 +121,12 @@ document.addEventListener('DOMContentLoaded', () => {
     // Replace &amp; to & in base URL to avoid parameter parsing issues
     const cleanBaseUrl = baseUrl.replace(/&amp;/g, '&');
     
+    // Redirect requests to video.google.com/timedtext to bypass extension Origin header blocks on www.youtube.com
+    const googleBaseUrl = cleanBaseUrl.replace('www.youtube.com/api/timedtext', 'video.google.com/timedtext');
+
     // We fetch raw timedtext XML (without fmt=json3) which is highly compatible and bypasses new JSON token validation
-    const sourceUrl = cleanBaseUrl;
-    const targetUrl = `${cleanBaseUrl}&tlang=${ythLang}`;
+    const sourceUrl = googleBaseUrl;
+    const targetUrl = `${googleBaseUrl}&tlang=${ythLang}`;
 
     // Show loading state
     const descEl = document.getElementById('download-desc');
