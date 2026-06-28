@@ -132,26 +132,32 @@ function processCaptionWindow(captionWindow) {
 
   captionWindow.dataset.currentOriginal = originalText;
 
+  // Insert placeholder immediately so the layout doesn't jump when translation arrives
+  let dualSub = captionWindow.querySelector('.ytp-dual-subtitle-container');
+  if (!dualSub) {
+    dualSub = document.createElement('div');
+    dualSub.className = 'ytp-dual-subtitle-container';
+    captionWindow.appendChild(dualSub);
+  }
+  dualSub.textContent = ' '; // non-breaking space holds height
+  applySubtitleStyles(dualSub);
+
   translateText(originalText, settings.targetLang).then((translated) => {
     // Prevent race conditions: check if the original text is still current
     if (captionWindow.dataset.currentOriginal !== originalText) {
       return;
     }
 
+    const current = captionWindow.querySelector('.ytp-dual-subtitle-container');
     if (!translated || translated.trim() === '') {
-      removeDualSubtitle(captionWindow);
+      if (current) current.remove();
       return;
     }
 
-    let dualSub = captionWindow.querySelector('.ytp-dual-subtitle-container');
-    if (!dualSub) {
-      dualSub = document.createElement('div');
-      dualSub.className = 'ytp-dual-subtitle-container';
-      captionWindow.appendChild(dualSub);
+    if (current) {
+      current.textContent = translated;
+      applySubtitleStyles(current);
     }
-
-    dualSub.textContent = translated;
-    applySubtitleStyles(dualSub);
   });
 }
 

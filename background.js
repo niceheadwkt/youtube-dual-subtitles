@@ -6,7 +6,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const { sourceUrl, targetUrl } = message;
 
     const fetchText = (url) =>
-      fetch(url, { credentials: 'omit' })
+      fetch(url, {
+        credentials: 'include',
+        headers: { 'Referer': 'https://www.youtube.com/' }
+      })
         .then(r => {
           if (!r.ok) throw new Error(`HTTP ${r.status}`);
           return r.text();
