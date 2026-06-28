@@ -114,24 +114,188 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function triggerDownload(format, baseUrl, videoTitle) {
     const targetLang = targetLanguage.value; // e.g. zh-TW
+    let ythLang = targetLang;
+    if (targetLang === 'zh-TW') ythLang = 'zh-Hant';
+    else if (targetLang === 'zh-CN') ythLang = 'zh-Hans';
+
+    const sourceUrl = `${baseUrl}&fmt=json3`;
+    const targetUrl = `${baseUrl}&tlang=${ythLang}&fmt=json3`;
+
+    // Show loading state
+    const descEl = document.getElementById('download-desc');
+    const originalDesc = descEl.textContent;
+    descEl.textContent = '正在下載與翻譯字幕...';
+
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       const activeTab = tabs[0];
       if (activeTab) {
-        // Send message to content script to perform the download
-        chrome.tabs.sendMessage(activeTab.id, {
-          type: 'DOWNLOAD_SUBTITLES',
-          format,
-          baseUrl,
-          targetLang,
-          videoTitle
-        }, (response) => {
-          if (chrome.runtime.lastError || !response || !response.success) {
-            alert('下載失敗: ' + (response ? response.error : '與頁面失去連線'));
+        chrome.scripting.executeScript({
+          target: { tabId: activeTab.id },
+          world: 'MAIN',
+          func: async (sUrl, tUrl) => {
+            try {
+              const res1 = await fetch(sUrl);
+              if (!res1.ok) throw new Error(`HTTP 錯誤: ${res1.status}`);
+              const data1 = await res1.json();
+              
+              let data2 = null;
+              try {
+                const res2 = await fetch(tUrl);
+                if (res2.ok) {
+                  data2 = await res2.json();
+                }
+              } catch (e) {
+                console.warn('Failed to fetch translated subtitles:', e);
+              }
+              
+              return { success: true, sourceData: data1, targetData: data2 };
+            } catch (err) {
+              return { success: false, error: err.message };
+            }
+          },
+          args: [sourceUrl, targetUrl]
+        }, (results) => {
+          descEl.textContent = originalDesc; // restore status text
+
+          if (chrome.runtime.lastError || !results || !results[0] || !results[0].result.success) {
+            const errMsg = results && results[0] ? results[0].result.error : (chrome.runtime.lastError ? chrome.runtime.lastError.message : '執行失敗');
+            alert('下載失敗: ' + errMsg);
+            return;
+          }
+
+          const { sourceData, targetData } = results[0].result;
+          const sourceEvents = sourceData?.events || [];
+          const translatedEvents = targetData?.events || [];
+
+          if (sourceEvents.length === 0) {
+            alert('下載失敗: 字幕資料為空');
+            return;
+          }
+
+          let fileContent = '';
+          const sanitizedTitle = videoTitle.replace(/[\\/:*?"<>|]/g, '_');
+
+          if (format === 'srt') {
+            fileContent = generateSrt(sourceEvents, translatedEvents);
+            downloadFile(fileContent, `${sanitizedTitle}.srt`, 'text/srt');
+          } else {
+            fileContent = generateTxt(sourceEvents, translatedEvents);
+            downloadFile(fileContent, `${sanitizedTitle}.txt`, 'text/plain');
           }
         });
       }
     });
   }
+
+  // Generate SRT dual subtitle content
+  function generateSrt(sourceEvents, translatedEvents) {
+    let srt = '';
+    let index = 1;
+
+    for (let i = 0; i < sourceEvents.length; i++) {
+      const sEvt = sourceEvents[i];
+      if (!sEvt.segs || sEvt.segs.length === 0) continue;
+
+      const text1 = sEvt.segs.map(s => s.utf8).join('').trim();
+      if (!text1) continue;
+
+      const startMs = sEvt.tStartMs;
+      const durationMs = sEvt.dDurationMs || 0;
+      const endMs = startMs + durationMs;
+
+      // Find translated text
+      let text2 = '';
+      if (translatedEvents && translatedEvents.length > 0) {
+        let tEvt = translatedEvents.find(t => Math.abs(t.tStartMs - startMs) < 100);
+        if (!tEvt && i < translatedEvents.length) {
+          tEvt = translatedEvents[i];
+        }
+        if (tEvt && tEvt.segs) {
+          text2 = tEvt.segs.map(s => s.utf8).join('').trim();
+        }
+      }
+
+      srt += `${index}\n`;
+      srt += `${formatSrtTime(startMs)} --> ${formatSrtTime(endMs)}\n`;
+      srt += `${text1}\n`;
+      if (text2 && text2 !== text1) {
+        srt += `${text2}\n`;
+      }
+      srt += '\n';
+      index++;
+    }
+    return srt;
+  }
+
+  // Generate TXT transcript content
+  function generateTxt(sourceEvents, translatedEvents) {
+    let txt = '';
+    for (let i = 0; i < sourceEvents.length; i++) {
+      const sEvt = sourceEvents[i];
+      if (!sEvt.segs || sEvt.segs.length === 0) continue;
+
+      const text1 = sEvt.segs.map(s => s.utf8).join('').trim();
+      if (!text1) continue;
+
+      const startMs = sEvt.tStartMs;
+
+      // Find translated text
+      let text2 = '';
+      if (translatedEvents && translatedEvents.length > 0) {
+        let tEvt = translatedEvents.find(t => Math.abs(t.tStartMs - startMs) < 100);
+        if (!tEvt && i < translatedEvents.length) {
+          tEvt = translatedEvents[i];
+        }
+        if (tEvt && tEvt.segs) {
+          text2 = tEvt.segs.map(s => s.utf8).join('').trim();
+        }
+      }
+
+      const timeStr = formatTxtTime(startMs);
+      txt += `[${timeStr}] ${text1}\n`;
+      if (text2 && text2 !== text1) {
+        txt += `        ${text2}\n`;
+      }
+      txt += '\n';
+    }
+    return txt;
+  }
+
+  // Helper to format milliseconds to HH:MM:SS,mmm
+  function formatSrtTime(ms) {
+    const hr = Math.floor(ms / 3600000);
+    const min = Math.floor((ms % 3600000) / 60000);
+    const sec = Math.floor((ms % 60000) / 1000);
+    const msec = ms % 1000;
+
+    return `${String(hr).padStart(2, '0')}:${String(min).padStart(2, '0')}:${String(sec).padStart(2, '0')},${String(msec).padStart(3, '0')}`;
+  }
+
+  // Helper to format milliseconds to MM:SS or HH:MM:SS
+  function formatTxtTime(ms) {
+    const hr = Math.floor(ms / 3600000);
+    const min = Math.floor((ms % 3600000) / 60000);
+    const sec = Math.floor((ms % 60000) / 1000);
+
+    if (hr > 0) {
+      return `${String(hr).padStart(2, '0')}:${String(min).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+    }
+    return `${String(min).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+  }
+
+  // Helper to download a file in browser
+  function downloadFile(content, filename, contentType) {
+    const blob = new Blob([content], { type: contentType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
 
   // Helper to update status badge UI
   function updateStatusBadge(enabled) {
