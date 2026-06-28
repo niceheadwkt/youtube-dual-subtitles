@@ -1,0 +1,21 @@
+/* YouTube Dual Subtitles Injected CSS */
+.ytp-dual-subtitle-container {
+  display: block !important;
+  user-select: none !important;
+  pointer-events: none !important;
+  font-weight: 500 !important;
+  transition: font-size 0.2s ease, background-color 0.2s ease;
+  word-break: break-word !important;
+  box-sizing: border-box !important;
+  width: 100% !important;
+}
+
+/* Optional: Slight styling adjustment to YouTube's native subtitle windows 
+   to accommodate the second language subtitle */
+.caption-window {
+  padding-bottom: 6px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
