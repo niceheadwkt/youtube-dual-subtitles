@@ -117,46 +117,57 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   function triggerDownload(format, trackLang, videoId, videoTitle) {
-    const targetLang = targetLanguage.value; // e.g. zh-TW
+    const targetLang = targetLanguage.value;
     let ythLang = targetLang;
     if (targetLang === 'zh-TW') ythLang = 'zh-Hant';
     else if (targetLang === 'zh-CN') ythLang = 'zh-Hans';
 
-    // Use the simple public timedtext endpoint — no session tokens required
-    const base = `https://www.youtube.com/api/timedtext?v=${videoId}&fmt=json3`;
-    const sourceUrl = `${base}&lang=${trackLang}`;
-    const targetUrl = `${base}&lang=${trackLang}&tlang=${ythLang}`;
-
-    // Show loading state
     const descEl = document.getElementById('download-desc');
     const originalDesc = descEl.textContent;
-    descEl.textContent = '正在下載與翻譯字幕...';
+    descEl.textContent = '正在讀取字幕快取...';
 
-    (async () => {
-      try {
-        const fetchText = async (url) => {
-          const r = await fetch(url, { credentials: 'include' });
-          const text = await r.text();
-          console.log('[DualSub] fetch', url.slice(0, 80), 'status:', r.status, 'len:', text.length, 'preview:', text.slice(0, 80));
-          if (!r.ok) throw new Error(`HTTP ${r.status}`);
-          return text;
-        };
+    // Retrieve subtitle data that interceptor.js cached from the player's own fetch
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      const tabId = tabs[0]?.id;
+      if (!tabId) { descEl.textContent = originalDesc; alert('下載失敗: 找不到頁籤'); return; }
 
-        const sourceText = await fetchText(sourceUrl);
-        if (!sourceText || sourceText.trim() === '') {
-          throw new Error(`來源字幕資料為空（HTTP 200 但 body 長度為 0）\nURL: ${sourceUrl.slice(0, 120)}`);
+      chrome.scripting.executeScript({
+        target: { tabId },
+        world: 'MAIN',
+        func: (lang, tlang) => {
+          const cache = window.__dualSubCache || {};
+          const keys = Object.keys(cache);
+          // Find source: prefer exact lang match, fall back to first non-tlang entry
+          const srcKey = keys.find(k => k === `lang:${lang}`) ||
+                         keys.find(k => k.startsWith('lang:') && !k.includes('tlang'));
+          // Find translated: prefer tlang match
+          const tKey = keys.find(k => k === `tlang:${tlang}`);
+          return {
+            sourceText: srcKey ? cache[srcKey].text : null,
+            targetText: tKey ? cache[tKey].text : null,
+            cachedKeys: keys
+          };
+        },
+        args: [trackLang, ythLang]
+      }, (results) => {
+        descEl.textContent = originalDesc;
+        if (chrome.runtime.lastError || !results?.[0]) {
+          alert('下載失敗: ' + (chrome.runtime.lastError?.message || '無法讀取頁面'));
+          return;
         }
 
-        let targetText = null;
-        try { targetText = await fetchText(targetUrl); } catch (_) {}
+        const { sourceText, targetText, cachedKeys } = results[0].result;
 
-        descEl.textContent = originalDesc;
+        if (!sourceText) {
+          alert(`下載失敗: 字幕尚未被快取。\n請確認影片字幕已開啟並播放一段時間後再試。\n快取中的 key: ${JSON.stringify(cachedKeys)}`);
+          return;
+        }
 
         const sourceEvents = parseSubtitles(sourceText);
         const translatedEvents = targetText ? parseSubtitles(targetText) : [];
 
         if (sourceEvents.length === 0) {
-          alert('下載失敗: 剖析字幕資料後無內容\n前80字元: ' + sourceText.slice(0, 80));
+          alert('下載失敗: 剖析字幕資料後無內容\n前80字: ' + sourceText.slice(0, 80));
           return;
         }
 
@@ -166,11 +177,8 @@ document.addEventListener('DOMContentLoaded', () => {
         } else {
           downloadFile(generateTxtFromXml(sourceEvents, translatedEvents), `${sanitizedTitle}.txt`, 'text/plain');
         }
-      } catch (err) {
-        descEl.textContent = originalDesc;
-        alert('下載失敗: ' + err.message);
-      }
-    })();
+      });
+    });
   }
 
   // Parse YouTube timedtext json3 format

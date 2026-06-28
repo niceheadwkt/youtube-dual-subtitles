@@ -20,15 +20,15 @@
   },
   "content_scripts": [
     {
-      "matches": [
-        "https://*.youtube.com/watch*"
-      ],
-      "js": [
-        "content.js"
-      ],
-      "css": [
-        "style.css"
-      ],
+      "matches": ["https://*.youtube.com/watch*"],
+      "js": ["interceptor.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["https://*.youtube.com/watch*"],
+      "js": ["content.js"],
+      "css": ["style.css"],
       "run_at": "document_idle"
     }
   ]
