@@ -228,53 +228,8 @@ setInterval(initObserver, 1000);
 // Subtitle Downloader & Exporter Feature
 // ==========================================
 
-// Inject script to retrieve the YouTube player response in the page context
-function getPlayerResponse() {
-  return new Promise((resolve) => {
-    const script = document.createElement('script');
-    script.textContent = `
-      (function() {
-        const player = document.getElementById('movie_player');
-        const data = player && typeof player.getPlayerResponse === 'function' 
-          ? player.getPlayerResponse() 
-          : window.ytInitialPlayerResponse;
-        document.dispatchEvent(new CustomEvent('AntigravityGetPlayerResponse', { detail: data }));
-      })();
-    `;
-    const handler = (e) => {
-      document.removeEventListener('AntigravityGetPlayerResponse', handler);
-      script.remove();
-      resolve(e.detail);
-    };
-    document.addEventListener('AntigravityGetPlayerResponse', handler);
-    document.documentElement.appendChild(script);
-  });
-}
-
 // Listen to messages from popup
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.type === 'GET_VIDEO_INFO') {
-    if (window.location.pathname !== '/watch') {
-      sendResponse({ isWatchPage: false });
-      return true;
-    }
-    
-    getPlayerResponse().then((playerResponse) => {
-      const tracks = playerResponse?.captions?.playerCaptionsTracklistRenderer?.captionTracks || [];
-      const videoTitle = playerResponse?.videoDetails?.title || document.title || 'youtube_subtitle';
-      sendResponse({
-        isWatchPage: true,
-        tracks: tracks,
-        videoTitle: videoTitle
-      });
-    }).catch(err => {
-      console.error('Error fetching player response:', err);
-      sendResponse({ isWatchPage: true, tracks: [], videoTitle: document.title });
-    });
-    
-    return true; // async response
-  }
-  
   if (message.type === 'DOWNLOAD_SUBTITLES') {
     const { format, baseUrl, targetLang, videoTitle } = message;
     

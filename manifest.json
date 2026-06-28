@@ -4,7 +4,8 @@
   "version": "1.0.0",
   "description": "在 YouTube 影片播放時同步顯示雙語字幕，支援多國語言設定與自訂字型大小。",
   "permissions": [
-    "storage"
+    "storage",
+    "scripting"
   ],
   "background": {
     "service_worker": "background.js"

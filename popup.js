@@ -57,17 +57,31 @@ document.addEventListener('DOMContentLoaded', () => {
     chrome.storage.local.set({ bgOpacity: parseInt(e.target.value, 10) });
   });
 
-  // Query active tab for caption track information
+  // Query active tab for caption track information using chrome.scripting.executeScript
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     const activeTab = tabs[0];
     if (activeTab && activeTab.url && activeTab.url.includes('youtube.com/watch')) {
-      chrome.tabs.sendMessage(activeTab.id, { type: 'GET_VIDEO_INFO' }, (response) => {
-        if (chrome.runtime.lastError || !response || !response.isWatchPage) {
+      chrome.scripting.executeScript({
+        target: { tabId: activeTab.id },
+        world: 'MAIN',
+        func: () => {
+          const player = document.getElementById('movie_player');
+          const data = player && typeof player.getPlayerResponse === 'function' 
+            ? player.getPlayerResponse() 
+            : window.ytInitialPlayerResponse;
+          return {
+            tracks: data?.captions?.playerCaptionsTracklistRenderer?.captionTracks || [],
+            videoTitle: data?.videoDetails?.title || document.title || 'youtube_subtitle'
+          };
+        }
+      }, (results) => {
+        if (chrome.runtime.lastError || !results || !results[0]) {
           document.getElementById('download-desc').textContent = '未偵測到影片播放或字幕';
+          console.error('Execute script error:', chrome.runtime.lastError);
           return;
         }
 
-        const { tracks, videoTitle } = response;
+        const { tracks, videoTitle } = results[0].result;
         if (!tracks || tracks.length === 0) {
           document.getElementById('download-desc').textContent = '此影片無可用 CC 字幕';
           return;
