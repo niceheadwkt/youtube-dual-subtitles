@@ -94,6 +94,7 @@ document.addEventListener('DOMContentLoaded', () => {
         tracks.forEach(track => {
           const opt = document.createElement('option');
           opt.value = track.baseUrl;
+          opt.dataset.lang = track.languageCode || '';
           opt.textContent = track.name.simpleText || track.languageCode;
           select.appendChild(opt);
         });
@@ -101,10 +102,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Add button listener
         document.getElementById('download-srt').onclick = () => {
-          triggerDownload('srt', select.value, videoTitle);
+          const opt = select.options[select.selectedIndex];
+          triggerDownload('srt', opt.value, opt.dataset.lang, videoTitle);
         };
         document.getElementById('download-txt').onclick = () => {
-          triggerDownload('txt', select.value, videoTitle);
+          const opt = select.options[select.selectedIndex];
+          triggerDownload('txt', opt.value, opt.dataset.lang, videoTitle);
         };
       });
     } else {
@@ -112,7 +115,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  function triggerDownload(format, baseUrl, videoTitle) {
+  function triggerDownload(format, baseUrl, trackLang, videoTitle) {
     const targetLang = targetLanguage.value; // e.g. zh-TW
     let ythLang = targetLang;
     if (targetLang === 'zh-TW') ythLang = 'zh-Hant';
@@ -121,13 +124,21 @@ document.addEventListener('DOMContentLoaded', () => {
     // Replace &amp; to & in base URL to avoid parameter parsing issues
     let cleanBaseUrl = baseUrl.replace(/&amp;/g, '&');
 
-    // Remove any existing fmt parameter so we can set it explicitly
+    // Remove any existing fmt / lang parameters so we can set them explicitly
     cleanBaseUrl = cleanBaseUrl.replace(/[&?]fmt=[^&]*/g, '');
+    cleanBaseUrl = cleanBaseUrl.replace(/[&?]lang=[^&]*/g, '');
+
+    // Fix URL if ? was accidentally consumed by the regex above
+    if (cleanBaseUrl.startsWith('https://') && !cleanBaseUrl.includes('?') && cleanBaseUrl.includes('&')) {
+      cleanBaseUrl = cleanBaseUrl.replace('&', '?');
+    }
 
     // fmt=json3 is the most reliable format for YouTube timedtext API
+    // lang= is required for ASR tracks (auto-generated captions)
     const sep = cleanBaseUrl.includes('?') ? '&' : '?';
-    const sourceUrl = `${cleanBaseUrl}${sep}fmt=json3`;
-    const targetUrl = `${cleanBaseUrl}${sep}fmt=json3&tlang=${ythLang}`;
+    const langParam = trackLang ? `&lang=${trackLang}` : '';
+    const sourceUrl = `${cleanBaseUrl}${sep}fmt=json3${langParam}`;
+    const targetUrl = `${cleanBaseUrl}${sep}fmt=json3${langParam}&tlang=${ythLang}`;
 
     // Show loading state
     const descEl = document.getElementById('download-desc');
