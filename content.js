@@ -19,16 +19,25 @@ chrome.storage.local.get(settings, (savedSettings) => {
 
 // Listen to settings changes from Popup
 chrome.storage.onChanged.addListener((changes) => {
+  let langChanged = false;
   let changed = false;
   for (const key in changes) {
     if (key in settings) {
+      if (key === 'targetLang') langChanged = true;
       settings[key] = changes[key].newValue;
       changed = true;
     }
   }
-  if (changed) {
-    updateAllSubtitles();
+  if (!changed) return;
+
+  if (langChanged) {
+    // Force re-translation: clear the per-window text cache and translation cache
+    translationCache.clear();
+    document.querySelectorAll('.caption-window').forEach(w => {
+      delete w.dataset.currentOriginal;
+    });
   }
+  updateAllSubtitles();
 });
 
 // Translation function that delegates to background script to bypass CORS
