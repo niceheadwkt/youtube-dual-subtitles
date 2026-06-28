@@ -276,6 +276,57 @@ input[type="range"]::-webkit-slider-thumb:hover {
   background: #818cf8;
 }
 
+/* Download Section Buttons */
+.download-buttons {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.btn {
+  flex: 1;
+  border: none;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  font-family: var(--font-family);
+  cursor: pointer;
+  outline: none;
+  transition: background-color 0.2s, transform 0.1s;
+  text-align: center;
+}
+
+.btn-primary {
+  background-color: var(--primary-color);
+  color: var(--text-main);
+  box-shadow: 0 2px 8px var(--primary-glow);
+}
+
+.btn-primary:hover {
+  background-color: #818cf8;
+}
+
+.btn-primary:active {
+  transform: scale(0.97);
+}
+
+.btn-secondary {
+  background-color: rgba(255, 255, 255, 0.08);
+  color: var(--text-main);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.btn-secondary:hover {
+  background-color: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.btn-secondary:active {
+  transform: scale(0.97);
+}
+
+
 /* Footer */
 .footer {
   display: flex;

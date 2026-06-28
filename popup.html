@@ -80,6 +80,28 @@
           <input type="range" id="bg-opacity" min="0" max="100" value="50" step="5">
         </div>
       </div>
+
+      <!-- Card 5: Subtitle Download -->
+      <div class="settings-card download-card">
+        <label class="card-label">下載雙語字幕</label>
+        <span class="card-desc" id="download-desc">正在偵測影片字幕...</span>
+        
+        <div id="download-controls" style="display: none; margin-top: 10px; width: 100%;">
+          <div class="select-wrapper" style="margin-bottom: 10px;">
+            <select id="download-source-lang">
+              <!-- 字幕軌選項將由 JS 動態載入 -->
+            </select>
+            <svg class="select-arrow" viewBox="0 0 24 24" width="18" height="18">
+              <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M6 9l6 6 6-6"/>
+            </svg>
+          </div>
+          
+          <div class="download-buttons">
+            <button id="download-srt" class="btn btn-primary">下載 SRT (雙語字幕)</button>
+            <button id="download-txt" class="btn btn-secondary">下載 TXT (逐字稿)</button>
+          </div>
+        </div>
+      </div>
     </main>
 
     <!-- Footer -->

@@ -223,3 +223,216 @@ function initObserver() {
 // Start checking for subtitle container
 // YouTube navigations happen dynamically, so we check periodically
 setInterval(initObserver, 1000);
+
+// ==========================================
+// Subtitle Downloader & Exporter Feature
+// ==========================================
+
+// Inject script to retrieve the YouTube player response in the page context
+function getPlayerResponse() {
+  return new Promise((resolve) => {
+    const script = document.createElement('script');
+    script.textContent = `
+      (function() {
+        const player = document.getElementById('movie_player');
+        const data = player && typeof player.getPlayerResponse === 'function' 
+          ? player.getPlayerResponse() 
+          : window.ytInitialPlayerResponse;
+        document.dispatchEvent(new CustomEvent('AntigravityGetPlayerResponse', { detail: data }));
+      })();
+    `;
+    const handler = (e) => {
+      document.removeEventListener('AntigravityGetPlayerResponse', handler);
+      script.remove();
+      resolve(e.detail);
+    };
+    document.addEventListener('AntigravityGetPlayerResponse', handler);
+    document.documentElement.appendChild(script);
+  });
+}
+
+// Listen to messages from popup
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.type === 'GET_VIDEO_INFO') {
+    if (window.location.pathname !== '/watch') {
+      sendResponse({ isWatchPage: false });
+      return true;
+    }
+    
+    getPlayerResponse().then((playerResponse) => {
+      const tracks = playerResponse?.captions?.playerCaptionsTracklistRenderer?.captionTracks || [];
+      const videoTitle = playerResponse?.videoDetails?.title || document.title || 'youtube_subtitle';
+      sendResponse({
+        isWatchPage: true,
+        tracks: tracks,
+        videoTitle: videoTitle
+      });
+    }).catch(err => {
+      console.error('Error fetching player response:', err);
+      sendResponse({ isWatchPage: true, tracks: [], videoTitle: document.title });
+    });
+    
+    return true; // async response
+  }
+  
+  if (message.type === 'DOWNLOAD_SUBTITLES') {
+    const { format, baseUrl, targetLang, videoTitle } = message;
+    
+    performDownload(format, baseUrl, targetLang, videoTitle)
+      .then(() => sendResponse({ success: true }))
+      .catch((err) => {
+        console.error('Download subtitles error:', err);
+        sendResponse({ success: false, error: err.message });
+      });
+      
+    return true; // async response
+  }
+});
+
+// Fetch source and translated subtitle tracks, merge and trigger download
+async function performDownload(format, baseUrl, targetLang, videoTitle) {
+  // 1. Fetch source track in JSON3 format
+  const sourceUrl = `${baseUrl}&fmt=json3`;
+  const sourceRes = await fetch(sourceUrl);
+  if (!sourceRes.ok) throw new Error('無法取得原始字幕資料');
+  const sourceData = await sourceRes.json();
+  const sourceEvents = sourceData.events || [];
+
+  // 2. Fetch translated track if different
+  let ythLang = targetLang;
+  if (targetLang === 'zh-TW') ythLang = 'zh-Hant';
+  else if (targetLang === 'zh-CN') ythLang = 'zh-Hans';
+
+  let translatedEvents = [];
+  try {
+    const targetUrl = `${baseUrl}&tlang=${ythLang}&fmt=json3`;
+    const targetRes = await fetch(targetUrl);
+    if (targetRes.ok) {
+      const targetData = await targetRes.json();
+      translatedEvents = targetData.events || [];
+    }
+  } catch (err) {
+    console.warn('Failed to fetch translated track from YouTube, downloading source only:', err);
+  }
+
+  // 3. Merge tracks and generate file
+  let fileContent = '';
+  const sanitizedTitle = videoTitle.replace(/[\\/:*?"<>|]/g, '_'); // sanitize filename
+
+  if (format === 'srt') {
+    fileContent = generateSrt(sourceEvents, translatedEvents);
+    downloadFile(fileContent, `${sanitizedTitle}.srt`, 'text/srt');
+  } else {
+    fileContent = generateTxt(sourceEvents, translatedEvents);
+    downloadFile(fileContent, `${sanitizedTitle}.txt`, 'text/plain');
+  }
+}
+
+// Generate SRT dual subtitle content
+function generateSrt(sourceEvents, translatedEvents) {
+  let srt = '';
+  let index = 1;
+
+  for (let i = 0; i < sourceEvents.length; i++) {
+    const sEvt = sourceEvents[i];
+    if (!sEvt.segs || sEvt.segs.length === 0) continue;
+
+    const text1 = sEvt.segs.map(s => s.utf8).join('').trim();
+    if (!text1) continue;
+
+    const startMs = sEvt.tStartMs;
+    const durationMs = sEvt.dDurationMs || 0;
+    const endMs = startMs + durationMs;
+
+    // Find translated text
+    let text2 = '';
+    if (translatedEvents.length > 0) {
+      let tEvt = translatedEvents.find(t => Math.abs(t.tStartMs - startMs) < 100);
+      if (!tEvt && i < translatedEvents.length) {
+        tEvt = translatedEvents[i];
+      }
+      if (tEvt && tEvt.segs) {
+        text2 = tEvt.segs.map(s => s.utf8).join('').trim();
+      }
+    }
+
+    srt += `${index}\n`;
+    srt += `${formatSrtTime(startMs)} --> ${formatSrtTime(endMs)}\n`;
+    srt += `${text1}\n`;
+    if (text2 && text2 !== text1) {
+      srt += `${text2}\n`;
+    }
+    srt += '\n';
+    index++;
+  }
+  return srt;
+}
+
+// Generate TXT transcript content
+function generateTxt(sourceEvents, translatedEvents) {
+  let txt = '';
+  for (let i = 0; i < sourceEvents.length; i++) {
+    const sEvt = sourceEvents[i];
+    if (!sEvt.segs || sEvt.segs.length === 0) continue;
+
+    const text1 = sEvt.segs.map(s => s.utf8).join('').trim();
+    if (!text1) continue;
+
+    const startMs = sEvt.tStartMs;
+
+    // Find translated text
+    let text2 = '';
+    if (translatedEvents.length > 0) {
+      let tEvt = translatedEvents.find(t => Math.abs(t.tStartMs - startMs) < 100);
+      if (!tEvt && i < translatedEvents.length) {
+        tEvt = translatedEvents[i];
+      }
+      if (tEvt && tEvt.segs) {
+        text2 = tEvt.segs.map(s => s.utf8).join('').trim();
+      }
+    }
+
+    const timeStr = formatTxtTime(startMs);
+    txt += `[${timeStr}] ${text1}\n`;
+    if (text2 && text2 !== text1) {
+      txt += `        ${text2}\n`;
+    }
+    txt += '\n';
+  }
+  return txt;
+}
+
+// Helper to format milliseconds to HH:MM:SS,mmm
+function formatSrtTime(ms) {
+  const hr = Math.floor(ms / 3600000);
+  const min = Math.floor((ms % 3600000) / 60000);
+  const sec = Math.floor((ms % 60000) / 1000);
+  const msec = ms % 1000;
+
+  return `${String(hr).padStart(2, '0')}:${String(min).padStart(2, '0')}:${String(sec).padStart(2, '0')},${String(msec).padStart(3, '0')}`;
+}
+
+// Helper to format milliseconds to MM:SS or HH:MM:SS
+function formatTxtTime(ms) {
+  const hr = Math.floor(ms / 3600000);
+  const min = Math.floor((ms % 3600000) / 60000);
+  const sec = Math.floor((ms % 60000) / 1000);
+
+  if (hr > 0) {
+    return `${String(hr).padStart(2, '0')}:${String(min).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+  }
+  return `${String(min).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+}
+
+// Helper to download a file in browser
+function downloadFile(content, filename, contentType) {
+  const blob = new Blob([content], { type: contentType });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
