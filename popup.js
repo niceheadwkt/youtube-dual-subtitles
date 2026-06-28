@@ -130,65 +130,38 @@ document.addEventListener('DOMContentLoaded', () => {
     const originalDesc = descEl.textContent;
     descEl.textContent = '正在下載與翻譯字幕...';
 
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      const activeTab = tabs[0];
-      if (activeTab) {
-        chrome.scripting.executeScript({
-          target: { tabId: activeTab.id },
-          world: 'MAIN',
-          func: async (sUrl, tUrl) => {
-            try {
-              const res1 = await fetch(sUrl);
-              if (!res1.ok) throw new Error(`來源字幕請求失敗 (HTTP ${res1.status})`);
-              const text1 = await res1.text();
-              if (!text1 || text1.trim() === "") throw new Error('來源字幕資料為空 (0位元組)');
-              
-              let text2 = null;
-              try {
-                const res2 = await fetch(tUrl);
-                if (res2.ok) {
-                  text2 = await res2.text();
-                }
-              } catch (e) {
-                console.warn('Failed to fetch translated subtitles:', e);
-              }
-              
-              return { success: true, sourceXml: text1, targetXml: text2 };
-            } catch (err) {
-              return { success: false, error: err.message };
-            }
-          },
-          args: [sourceUrl, targetUrl]
-        }, (results) => {
-          descEl.textContent = originalDesc; // restore status text
+    chrome.runtime.sendMessage({
+      type: 'FETCH_SUBTITLES',
+      sourceUrl,
+      targetUrl
+    }, (response) => {
+      descEl.textContent = originalDesc; // restore status text
 
-          if (chrome.runtime.lastError || !results || !results[0] || !results[0].result.success) {
-            const errMsg = results && results[0] ? results[0].result.error : (chrome.runtime.lastError ? chrome.runtime.lastError.message : '執行失敗');
-            alert('下載失敗: ' + errMsg);
-            return;
-          }
+      if (chrome.runtime.lastError || !response || !response.success) {
+        const errMsg = response ? response.error : (chrome.runtime.lastError ? chrome.runtime.lastError.message : '連線逾時');
+        alert('下載失敗: ' + errMsg);
+        return;
+      }
 
-          const { sourceXml, targetXml } = results[0].result;
-          
-          const sourceEvents = parseXmlSubtitles(sourceXml);
-          const translatedEvents = targetXml ? parseXmlSubtitles(targetXml) : [];
+      const { sourceXml, targetXml } = response;
+      
+      const sourceEvents = parseXmlSubtitles(sourceXml);
+      const translatedEvents = targetXml ? parseXmlSubtitles(targetXml) : [];
 
-          if (sourceEvents.length === 0) {
-            alert('下載失敗: 剖析字幕資料後無內容');
-            return;
-          }
+      if (sourceEvents.length === 0) {
+        alert('下載失敗: 剖析字幕資料後無內容');
+        return;
+      }
 
-          let fileContent = '';
-          const sanitizedTitle = videoTitle.replace(/[\\/:*?"<>|]/g, '_');
+      let fileContent = '';
+      const sanitizedTitle = videoTitle.replace(/[\\/:*?"<>|]/g, '_');
 
-          if (format === 'srt') {
-            fileContent = generateSrtFromXml(sourceEvents, translatedEvents);
-            downloadFile(fileContent, `${sanitizedTitle}.srt`, 'text/srt');
-          } else {
-            fileContent = generateTxtFromXml(sourceEvents, translatedEvents);
-            downloadFile(fileContent, `${sanitizedTitle}.txt`, 'text/plain');
-          }
-        });
+      if (format === 'srt') {
+        fileContent = generateSrtFromXml(sourceEvents, translatedEvents);
+        downloadFile(fileContent, `${sanitizedTitle}.srt`, 'text/srt');
+      } else {
+        fileContent = generateTxtFromXml(sourceEvents, translatedEvents);
+        downloadFile(fileContent, `${sanitizedTitle}.txt`, 'text/plain');
       }
     });
   }

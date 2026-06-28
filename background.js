@@ -29,4 +29,34 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // Return true to indicate that we will respond asynchronously
     return true;
   }
+
+  if (message.type === 'FETCH_SUBTITLES') {
+    const { sourceUrl, targetUrl } = message;
+    
+    (async () => {
+      try {
+        const res1 = await fetch(sourceUrl);
+        if (!res1.ok) throw new Error(`來源字幕請求失敗 (HTTP ${res1.status})`);
+        const text1 = await res1.text();
+        if (!text1 || text1.trim() === "") throw new Error('來源字幕資料為空 (0位元組)');
+        
+        let text2 = null;
+        if (targetUrl) {
+          try {
+            const res2 = await fetch(targetUrl);
+            if (res2.ok) {
+              text2 = await res2.text();
+            }
+          } catch (e) {
+            console.warn('Failed to fetch target subtitles:', e);
+          }
+        }
+        sendResponse({ success: true, sourceXml: text1, targetXml: text2 });
+      } catch (err) {
+        sendResponse({ success: false, error: err.message });
+      }
+    })();
+    
+    return true; // async response
+  }
 });
