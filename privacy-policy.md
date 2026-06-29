@@ -1,4 +1,4 @@
-# Privacy Policy — YouTube 雙語字幕助手 (Antigravity Dual Sub)
+# Privacy Policy — YouTube 雙語字幕助手 (youtube-dual-subtitles)
 
 Last updated: 2026-06-28
 

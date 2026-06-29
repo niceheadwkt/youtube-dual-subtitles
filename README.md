@@ -1,4 +1,4 @@
-# YouTube 雙語字幕助手 (Antigravity Dual Sub)
+# YouTube 雙語字幕助手 (youtube-dual-subtitles)
 
 適用於 Google Chrome 的輕量化擴充功能（Manifest V3），在 YouTube 播放影片時自動將原生字幕翻譯成指定的第二語言，雙語同步顯示，並可下載雙語 SRT / TXT 字幕檔。
 
@@ -56,11 +56,11 @@ chrome://extensions/
 
 點擊左上角「**載入未封裝項目**」→ 選擇專案資料夾 → 確認。
 
-載入後會看到「**Antigravity Dual Sub**」卡片出現在列表中。
+載入後會看到「**youtube-dual-subtitles**」卡片出現在列表中。
 
 ### 5. 釘選到工具列（方便操作）
 
-點擊瀏覽器右上角拼圖圖示 → 找到「Antigravity Dual Sub」→ 點擊圖釘固定。
+點擊瀏覽器右上角拼圖圖示 → 找到「youtube-dual-subtitles」→ 點擊圖釘固定。
 
 ---
 
